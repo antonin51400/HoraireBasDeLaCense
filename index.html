@@ -1,12 +1,20 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Horaire Bas de la Cense</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Horaire Bas de la Cense</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f7ef;margin:0;color:#172114}header{background:#245b32;color:white;padding:24px}main{max-width:760px;margin:20px auto;padding:16px}.card{background:white;border-radius:18px;padding:20px;margin:16px 0;box-shadow:0 8px 25px #0002}.hidden{display:none}.btn{background:#2f6f3e;color:white;border:0;border-radius:30px;padding:12px 18px;font-weight:bold}input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box}.warning{background:#fff6d8}.clock{font-size:48px;font-weight:bold;margin:15px 0}
+</style>
 </head>
 <body>
-  <h1>Horaire Bas de la Cense</h1>
-  <p>Pointeuse connectée SCEA du Bas de la Cense.</p>
+<header><h1>Horaire Bas de la Cense</h1><p>Pointeuse connectee SCEA du Bas de la Cense</p></header>
+<main>
+<section id="configBox" class="card warning hidden"><h2>Firebase non configure</h2><p>Remplace les valeurs dans firebase-config.js.</p></section>
+<section id="authBox" class="card"><h2>Connexion</h2><form id="loginForm"><input id="email" type="email" placeholder="Email" required><input id="password" type="password" placeholder="Mot de passe" required><button class="btn">Se connecter</button></form></section>
+<section id="appBox" class="card hidden"><h2>Badgeuse</h2><div class="clock" id="clock">--:--</div><button class="btn" id="clockIn">Pointer arrivee</button><button class="btn" id="clockOut">Pointer depart</button><p id="status"></p></section>
+</main>
+<script type="module" src="app.js"></script>
 </body>
 </html>
