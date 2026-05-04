@@ -1,36 +1,27 @@
 import { firebaseConfig } from '../firebase-config.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import { getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import { getFirestore,collection,doc,getDoc,setDoc,addDoc,updateDoc,onSnapshot,query,where,serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+const $=id=>document.getElementById(id);
+let user=null,profile=null,openEntry=null;
+const show=(id,on)=>$(id)?.classList.toggle('hidden',!on);
+const msg=t=>alert(t);
+const now=()=>new Date().toISOString();
+const day=()=>new Date().toISOString().slice(0,10);
+const h=(a,b,p=0)=>Math.max(0,Math.round(((new Date(b)-new Date(a))/36e5-p/60)*100)/100);
+setInterval(()=>{$('clock-time')&&($('clock-time').textContent=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}));$('clock-date')&&($('clock-date').textContent=new Date().toLocaleDateString('fr-FR'));},1000);
 
-const authView = document.getElementById('auth-view');
-const empView = document.getElementById('employee-view');
-const logoutBtn = document.getElementById('logout-btn');
+onAuthStateChanged(auth,async u=>{user=u;show('auth-view',!u);show('top-actions',!!u);if(!u){show('employee-view',false);show('admin-view',false);return}const s=await getDoc(doc(db,'users',u.uid));if(!s.exists()){show('no-access-view',true);return}profile=s.data();$('session-label').textContent=(profile.name||u.email)+' · '+profile.role;if(profile.role==='admin'){show('admin-view',true);show('employee-view',false);listenAdmin()}else{show('employee-view',true);show('admin-view',false);listenEmployee()}});
+$('login-form')?.addEventListener('submit',async e=>{e.preventDefault();try{await signInWithEmailAndPassword(auth,$('login-email').value,$('login-password').value)}catch(x){msg(x.message)}});
+$('signup-form')?.addEventListener('submit',async e=>{e.preventDefault();const email=$('signup-email').value.toLowerCase();try{const inv=await getDoc(doc(db,'invitations',email));if(!inv.exists())throw Error('Email non invité');const c=await createUserWithEmailAndPassword(auth,email,$('signup-password').value);await setDoc(doc(db,'users',c.user.uid),{name:$('signup-name').value,email,role:'employee',active:true,leaveBalance:inv.data().leaveBalance||30,leaveTaken:0,leavePending:0,createdAt:serverTimestamp()});msg('Compte créé')}catch(x){msg(x.message)}});
+$('logout-btn')?.addEventListener('click',()=>signOut(auth));$('no-access-logout-btn')?.addEventListener('click',()=>signOut(auth));
 
-onAuthStateChanged(auth, user => {
-  if (user) {
-    authView.classList.add('hidden');
-    empView.classList.remove('hidden');
-    logoutBtn.classList.remove('hidden');
-  } else {
-    authView.classList.remove('hidden');
-    empView.classList.add('hidden');
-    logoutBtn.classList.add('hidden');
-  }
-});
-
-document.getElementById('login-form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const email = document.getElementById('login-email').value;
-  const password = document.getElementById('login-password').value;
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-    alert('Connexion OK');
-  } catch (e) {
-    alert(e.message);
-  }
-});
-
-logoutBtn.addEventListener('click', () => signOut(auth));
+function listenEmployee(){ $('employee-title').textContent='Bonjour '+(profile.name||''); $('metric-leave-balance').textContent=profile.leaveBalance??0; $('metric-leave-taken').textContent=profile.leaveTaken??0; $('metric-leave-pending').textContent=profile.leavePending??0; onSnapshot(query(collection(db,'timeEntries'),where('userId','==',user.uid)),s=>{let rows=[],month=0;openEntry=null;s.forEach(d=>{let e={id:d.id,...d.data()};if(e.status==='open')openEntry=e;if((e.date||'').slice(0,7)===day().slice(0,7))month+=Number(e.totalHours||0);rows.push(`<tr><td>${e.date||''}</td><td>${e.startAt?new Date(e.startAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):''}</td><td>${e.endAt?new Date(e.endAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):''}</td><td>${e.breakMinutes||0}</td><td>${e.totalHours||0}</td><td>${e.status}</td></tr>`)});$('employee-time-body').innerHTML=rows.join('');$('metric-month-hours').textContent=Math.round(month*100)/100;$('clock-in-btn').disabled=!!openEntry;$('clock-out-btn').disabled=!openEntry;$('open-shift-pill').textContent=openEntry?'Journée ouverte':'Aucune journée ouverte'}); }
+$('clock-in-btn')?.addEventListener('click',()=>addDoc(collection(db,'timeEntries'),{userId:user.uid,userName:profile.name,email:profile.email,date:day(),startAt:now(),status:'open',breakMinutes:0,totalHours:0,createdAt:serverTimestamp()}));
+$('clock-out-btn')?.addEventListener('click',async()=>{if(!openEntry)return;const p=Number($('break-minutes').value||0),end=now();await updateDoc(doc(db,'timeEntries',openEntry.id),{endAt:end,breakMinutes:p,totalHours:h(openEntry.startAt,end,p),status:'submitted',updatedAt:serverTimestamp()})});
+$('manual-entry-form')?.addEventListener('submit',async e=>{e.preventDefault();const d=$('manual-date').value,s=d+'T'+$('manual-start').value,en=d+'T'+$('manual-end').value,p=Number($('manual-break').value||0);await addDoc(collection(db,'timeEntries'),{userId:user.uid,userName:profile.name,email:profile.email,date:d,startAt:s,endAt:en,breakMinutes:p,totalHours:h(s,en,p),comment:$('manual-comment').value,status:'submitted',createdAt:serverTimestamp()});msg('Journée enregistrée')});
+$('leave-request-form')?.addEventListener('submit',async e=>{e.preventDefault();await addDoc(collection(db,'leaveRequests'),{userId:user.uid,userName:profile.name,email:profile.email,type:$('leave-type').value,start:$('leave-start').value,end:$('leave-end').value,days:Number($('leave-days').value||1),comment:$('leave-comment').value,status:'pending',createdAt:serverTimestamp()});msg('Demande envoyée')});
+function listenAdmin(){onSnapshot(collection(db,'timeEntries'),s=>{$('admin-time-body').innerHTML=[...s.docs].map(d=>{let e={id:d.id,...d.data()};return `<tr><td>${e.userName||e.email}</td><td>${e.date||''}</td><td>${e.startAt||''}</td><td>${e.endAt||''}</td><td>${e.breakMinutes||0}</td><td>${e.totalHours||0}</td><td>${e.status}</td><td>${e.comment||''}</td><td><button data-ok="${e.id}">Valider</button></td></tr>`}).join('');document.querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>updateDoc(doc(db,'timeEntries',b.dataset.ok),{status:'validated'}))});onSnapshot(collection(db,'leaveRequests'),s=>{$('admin-leave-body').innerHTML=[...s.docs].map(d=>{let l={id:d.id,...d.data()};return `<tr><td>${l.userName}</td><td>${l.type}</td><td>${l.start}</td><td>${l.end}</td><td>${l.days}</td><td>${l.status}</td><td>${l.comment||''}</td><td><button data-la="${l.id}">OK</button><button data-lr="${l.id}">Non</button></td></tr>`}).join('');document.querySelectorAll('[data-la]').forEach(b=>b.onclick=()=>updateDoc(doc(db,'leaveRequests',b.dataset.la),{status:'approved'}));document.querySelectorAll('[data-lr]').forEach(b=>b.onclick=()=>updateDoc(doc(db,'leaveRequests',b.dataset.lr),{status:'rejected'}))})}
+$('invite-form')?.addEventListener('submit',async e=>{e.preventDefault();await setDoc(doc(db,'invitations',$('invite-email').value.toLowerCase()),{name:$('invite-name').value,email:$('invite-email').value.toLowerCase(),leaveBalance:Number($('invite-leave-balance').value||30),createdAt:serverTimestamp()});msg('Invitation créée')});
