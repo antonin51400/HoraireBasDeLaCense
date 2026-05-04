@@ -1,0 +1,121 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function currentUserDoc() {
+      return get(userPath(request.auth.uid));
+    }
+
+    function isActiveUser() {
+      return signedIn()
+        && exists(userPath(request.auth.uid))
+        && currentUserDoc().data.active == true;
+    }
+
+    function isAdmin() {
+      return isActiveUser()
+        && currentUserDoc().data.role == 'admin';
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function invitationPath(email) {
+      return /databases/$(database)/documents/invitations/$(email);
+    }
+
+    function canCreateInvitedEmployee(uid) {
+      return isOwner(uid)
+        && request.auth.token.email is string
+        && exists(invitationPath(request.auth.token.email))
+        && request.resource.data.keys().hasOnly([
+          'email', 'displayName', 'role', 'active', 'weeklyHours',
+          'annualPaidLeaveDays', 'leaveBalanceDays', 'leaveTakenDays',
+          'companyId', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == 'employee'
+        && request.resource.data.active == true
+        && request.resource.data.companyId == 'main'
+        && request.resource.data.displayName == get(invitationPath(request.auth.token.email)).data.displayName
+        && request.resource.data.weeklyHours == get(invitationPath(request.auth.token.email)).data.weeklyHours
+        && request.resource.data.annualPaidLeaveDays == get(invitationPath(request.auth.token.email)).data.annualPaidLeaveDays
+        && request.resource.data.leaveBalanceDays == get(invitationPath(request.auth.token.email)).data.leaveBalanceDays
+        && request.resource.data.leaveTakenDays == 0;
+    }
+
+    match /users/{uid} {
+      allow get: if isAdmin() || isOwner(uid);
+      allow list: if isAdmin();
+      allow create: if canCreateInvitedEmployee(uid);
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /invitations/{email} {
+      allow get: if isAdmin() || (signedIn() && request.auth.token.email == email);
+      allow list: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.token.email == email
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'uid', 'acceptedAt', 'updatedAt'])
+          && request.resource.data.status == 'accepted'
+          && request.resource.data.uid == request.auth.uid
+        );
+    }
+
+    match /timeEntries/{entryId} {
+      allow read: if isAdmin() || (isActiveUser() && resource.data.uid == request.auth.uid);
+
+      allow create: if isActiveUser()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status in ['open', 'submitted']
+        && request.resource.data.durationMinutes >= 0
+        && request.resource.data.breakMinutes >= 0;
+
+      allow update: if isAdmin()
+        || (
+          isActiveUser()
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.status in ['open', 'submitted']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'clockOut', 'breakMinutes', 'durationMinutes', 'status',
+            'locationOut', 'comment', 'updatedAt'
+          ])
+          && request.resource.data.breakMinutes >= 0
+          && request.resource.data.durationMinutes >= 0
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /leaveRequests/{requestId} {
+      allow read: if isAdmin() || (isActiveUser() && resource.data.uid == request.auth.uid);
+
+      allow create: if isActiveUser()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.days > 0;
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /companies/{companyId} {
+      allow get, list: if isActiveUser();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+  }
+}

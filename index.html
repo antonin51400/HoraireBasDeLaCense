@@ -1,20 +1,388 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Horaire Bas de la Cense</title>
-<style>
-body{font-family:Arial,sans-serif;background:#f4f7ef;margin:0;color:#172114}header{background:#245b32;color:white;padding:24px}main{max-width:760px;margin:20px auto;padding:16px}.card{background:white;border-radius:18px;padding:20px;margin:16px 0;box-shadow:0 8px 25px #0002}.hidden{display:none}.btn{background:#2f6f3e;color:white;border:0;border-radius:30px;padding:12px 18px;font-weight:bold}input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box}.warning{background:#fff6d8}.clock{font-size:48px;font-weight:bold;margin:15px 0}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pointeuse — SCEA du Bas de la CENSE</title>
+  <meta name="description" content="Pointeuse connectée pour la SCEA du Bas de la CENSE : heures, congés, administration salariés." />
+  <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
-<header><h1>Horaire Bas de la Cense</h1><p>Pointeuse connectee SCEA du Bas de la Cense</p></header>
-<main>
-<section id="configBox" class="card warning hidden"><h2>Firebase non configure</h2><p>Remplace les valeurs dans firebase-config.js.</p></section>
-<section id="authBox" class="card"><h2>Connexion</h2><form id="loginForm"><input id="email" type="email" placeholder="Email" required><input id="password" type="password" placeholder="Mot de passe" required><button class="btn">Se connecter</button></form></section>
-<section id="appBox" class="card hidden"><h2>Badgeuse</h2><div class="clock" id="clock">--:--</div><button class="btn" id="clockIn">Pointer arrivee</button><button class="btn" id="clockOut">Pointer depart</button><p id="status"></p></section>
-</main>
-<script type="module" src="app.js"></script>
+  <div id="toast" class="toast hidden"></div>
+
+  <header class="hero">
+    <nav class="topbar">
+      <div class="brand">
+        <div class="brand-mark">BC</div>
+        <div>
+          <strong>SCEA du Bas de la CENSE</strong>
+          <span>Pointeuse connectée</span>
+        </div>
+      </div>
+      <div class="top-actions hidden" id="top-actions">
+        <span id="session-label" class="session-label"></span>
+        <button class="btn secondary" id="logout-btn">Déconnexion</button>
+      </div>
+    </nav>
+
+    <section class="hero-content">
+      <p class="eyebrow">Gestion des temps · Congés · Salariés</p>
+      <h1>Une badgeuse simple pour enregistrer les heures de l’exploitation.</h1>
+      <p class="hero-subtitle">Connexion sécurisée par compte salarié, déclaration des heures, suivi des congés et tableau de bord administrateur.</p>
+    </section>
+  </header>
+
+  <main>
+    <section id="auth-view" class="auth-layout">
+      <div class="auth-card card">
+        <div class="tabs">
+          <button class="tab active" data-auth-tab="login">Connexion</button>
+          <button class="tab" data-auth-tab="signup">Créer mon accès salarié</button>
+        </div>
+
+        <form id="login-form" class="auth-form">
+          <h2>Connexion</h2>
+          <label>Email
+            <input type="email" id="login-email" autocomplete="email" required placeholder="prenom.nom@email.fr" />
+          </label>
+          <label>Mot de passe
+            <input type="password" id="login-password" autocomplete="current-password" required placeholder="••••••••" />
+          </label>
+          <button class="btn primary full" type="submit">Se connecter</button>
+          <button class="link-button" type="button" id="reset-password-btn">Mot de passe oublié</button>
+        </form>
+
+        <form id="signup-form" class="auth-form hidden">
+          <h2>Première connexion salarié</h2>
+          <p class="muted">Votre email doit d’abord être ajouté par l’administrateur dans les invitations.</p>
+          <label>Nom complet
+            <input type="text" id="signup-name" autocomplete="name" required placeholder="Prénom NOM" />
+          </label>
+          <label>Email invité
+            <input type="email" id="signup-email" autocomplete="email" required placeholder="email déclaré par l’admin" />
+          </label>
+          <label>Mot de passe
+            <input type="password" id="signup-password" autocomplete="new-password" required minlength="8" placeholder="8 caractères minimum" />
+          </label>
+          <button class="btn primary full" type="submit">Créer mon compte</button>
+        </form>
+      </div>
+
+      <aside class="card info-card">
+        <h2>Fonctionnement prévu</h2>
+        <ul class="check-list">
+          <li>Un salarié badge son arrivée et son départ.</li>
+          <li>Il peut déclarer une journée manuellement si besoin.</li>
+          <li>Il voit ses congés disponibles, pris et en attente.</li>
+          <li>L’administrateur crée les accès, valide les heures et accepte/refuse les congés.</li>
+        </ul>
+        <p class="warning"><strong>Important :</strong> les données sont stockées dans Firebase Firestore. Les règles de sécurité fournies doivent être publiées avant utilisation réelle.</p>
+      </aside>
+    </section>
+
+    <section id="no-access-view" class="card hidden restricted-card">
+      <h2>Compte non autorisé</h2>
+      <p>Ce compte Firebase existe, mais aucun profil salarié ou administrateur n’est rattaché. Demandez à l’administrateur d’ajouter votre email dans les invitations.</p>
+      <button class="btn secondary" id="no-access-logout-btn">Retour connexion</button>
+    </section>
+
+    <section id="employee-view" class="app-view hidden">
+      <div class="dashboard-heading">
+        <div>
+          <p class="eyebrow">Espace salarié</p>
+          <h2 id="employee-title">Bonjour</h2>
+        </div>
+        <div class="badge" id="employee-status-badge">Compte actif</div>
+      </div>
+
+      <div class="grid cards-4">
+        <article class="metric-card card">
+          <span>Congés disponibles</span>
+          <strong id="metric-leave-balance">—</strong>
+          <small>jours</small>
+        </article>
+        <article class="metric-card card">
+          <span>Congés pris</span>
+          <strong id="metric-leave-taken">—</strong>
+          <small>jours validés</small>
+        </article>
+        <article class="metric-card card">
+          <span>Demandes en attente</span>
+          <strong id="metric-leave-pending">—</strong>
+          <small>congés</small>
+        </article>
+        <article class="metric-card card">
+          <span>Heures du mois</span>
+          <strong id="metric-month-hours">—</strong>
+          <small>heures déclarées</small>
+        </article>
+      </div>
+
+      <div class="grid main-grid">
+        <section class="card clock-card">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Badgeuse</p>
+              <h3>Pointer maintenant</h3>
+            </div>
+            <span id="open-shift-pill" class="pill neutral">Aucune journée ouverte</span>
+          </div>
+          <div class="clock-display">
+            <span id="clock-date">—</span>
+            <strong id="clock-time">—</strong>
+          </div>
+          <label>Pause à déduire au départ, en minutes
+            <input type="number" id="break-minutes" min="0" step="5" value="0" />
+          </label>
+          <div class="row-actions">
+            <button class="btn success" id="clock-in-btn">Pointer arrivée</button>
+            <button class="btn danger" id="clock-out-btn" disabled>Pointer départ</button>
+          </div>
+          <p class="muted small">La géolocalisation est demandée si le navigateur l’autorise. Elle reste optionnelle.</p>
+        </section>
+
+        <section class="card">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Déclaration</p>
+              <h3>Ajouter une journée manuelle</h3>
+            </div>
+          </div>
+          <form id="manual-entry-form" class="compact-form">
+            <div class="form-grid-2">
+              <label>Date
+                <input type="date" id="manual-date" required />
+              </label>
+              <label>Pause minutes
+                <input type="number" id="manual-break" min="0" step="5" value="0" />
+              </label>
+              <label>Début
+                <input type="time" id="manual-start" required />
+              </label>
+              <label>Fin
+                <input type="time" id="manual-end" required />
+              </label>
+            </div>
+            <label>Commentaire
+              <textarea id="manual-comment" rows="3" placeholder="Ex. semis, atelier, livraison, réparation…"></textarea>
+            </label>
+            <button class="btn primary full" type="submit">Enregistrer la journée</button>
+          </form>
+        </section>
+      </div>
+
+      <div class="grid main-grid">
+        <section class="card">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Congés</p>
+              <h3>Demander un congé</h3>
+            </div>
+          </div>
+          <form id="leave-request-form" class="compact-form">
+            <div class="form-grid-2">
+              <label>Type
+                <select id="leave-type">
+                  <option value="Congés payés">Congés payés</option>
+                  <option value="RTT / récupération">RTT / récupération</option>
+                  <option value="Sans solde">Sans solde</option>
+                  <option value="Maladie">Maladie</option>
+                  <option value="Autre">Autre</option>
+                </select>
+              </label>
+              <label>Jours ouvrés estimés
+                <input type="number" id="leave-days" min="0.5" step="0.5" readonly />
+              </label>
+              <label>Du
+                <input type="date" id="leave-start" required />
+              </label>
+              <label>Au
+                <input type="date" id="leave-end" required />
+              </label>
+            </div>
+            <label>Motif / commentaire
+              <textarea id="leave-comment" rows="3"></textarea>
+            </label>
+            <button class="btn primary full" type="submit">Envoyer la demande</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Historique</p>
+              <h3>Mes dernières heures</h3>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Début</th><th>Fin</th><th>Pause</th><th>Total</th><th>Statut</th></tr></thead>
+              <tbody id="employee-time-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Congés</p>
+            <h3>Mes demandes</h3>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Type</th><th>Du</th><th>Au</th><th>Jours</th><th>Statut</th><th>Réponse</th></tr></thead>
+            <tbody id="employee-leave-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="admin-view" class="app-view hidden">
+      <div class="dashboard-heading">
+        <div>
+          <p class="eyebrow">Mode administrateur</p>
+          <h2>Tableau de bord de l’exploitation</h2>
+        </div>
+        <button class="btn primary" id="export-csv-btn">Exporter les heures CSV</button>
+      </div>
+
+      <div class="grid cards-4">
+        <article class="metric-card card"><span>Salariés actifs</span><strong id="admin-active-users">—</strong><small>profils</small></article>
+        <article class="metric-card card"><span>Pointages ouverts</span><strong id="admin-open-shifts">—</strong><small>à clôturer</small></article>
+        <article class="metric-card card"><span>Congés en attente</span><strong id="admin-pending-leaves">—</strong><small>demandes</small></article>
+        <article class="metric-card card"><span>Heures mois</span><strong id="admin-month-hours">—</strong><small>cumul exploitation</small></article>
+      </div>
+
+      <div class="grid main-grid">
+        <section class="card">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Salariés</p>
+              <h3>Inviter un salarié</h3>
+            </div>
+          </div>
+          <form id="invite-form" class="compact-form">
+            <label>Nom complet
+              <input type="text" id="invite-name" required placeholder="Prénom NOM" />
+            </label>
+            <label>Email
+              <input type="email" id="invite-email" required placeholder="email du salarié" />
+            </label>
+            <div class="form-grid-2">
+              <label>Heures/semaine
+                <input type="number" id="invite-weekly-hours" min="0" step="0.5" value="35" />
+              </label>
+              <label>Congés disponibles initiaux
+                <input type="number" id="invite-leave-balance" min="0" step="0.5" value="30" />
+              </label>
+            </div>
+            <button class="btn primary full" type="submit">Créer l’invitation</button>
+          </form>
+          <p class="muted small">Le salarié créera ensuite son compte avec exactement le même email.</p>
+        </section>
+
+        <section class="card">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Configuration</p>
+              <h3>Paramètres entreprise</h3>
+            </div>
+          </div>
+          <form id="company-form" class="compact-form">
+            <label>Nom de l’exploitation
+              <input type="text" id="company-name" value="SCEA du Bas de la CENSE" />
+            </label>
+            <label>Email administrateur / contact
+              <input type="email" id="company-email" placeholder="contact@email.fr" />
+            </label>
+            <div class="form-grid-2">
+              <label>Durée standard journée
+                <input type="number" id="company-day-hours" min="0" step="0.25" value="7" />
+              </label>
+              <label>Année congés
+                <input type="number" id="company-year" min="2024" max="2100" />
+              </label>
+            </div>
+            <button class="btn secondary full" type="submit">Enregistrer paramètres</button>
+          </form>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Salariés</p>
+            <h3>Profils actifs</h3>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>H/sem.</th><th>Congés dispo.</th><th>Congés pris</th><th>Actif</th><th>Action</th></tr></thead>
+            <tbody id="admin-users-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Invitations</p>
+            <h3>Comptes salariés en attente</h3>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Nom</th><th>Email</th><th>Congés initiaux</th><th>Statut</th><th>Création</th></tr></thead>
+            <tbody id="admin-invites-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Pointages</p>
+            <h3>Heures déclarées</h3>
+          </div>
+          <select id="admin-status-filter">
+            <option value="all">Tous les statuts</option>
+            <option value="open">Ouverts</option>
+            <option value="submitted">À valider</option>
+            <option value="validated">Validés</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Salarié</th><th>Date</th><th>Début</th><th>Fin</th><th>Pause</th><th>Total</th><th>Statut</th><th>Commentaire</th><th>Action</th></tr></thead>
+            <tbody id="admin-time-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Congés</p>
+            <h3>Demandes à traiter</h3>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Salarié</th><th>Type</th><th>Du</th><th>Au</th><th>Jours</th><th>Statut</th><th>Commentaire</th><th>Action</th></tr></thead>
+            <tbody id="admin-leave-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>SCEA du Bas de la CENSE — Pointeuse connectée</span>
+    <span>Données synchronisées avec Firebase</span>
+  </footer>
+
+  <script type="module" src="assets/app.js"></script>
 </body>
 </html>
